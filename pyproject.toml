@@ -50,5 +50,5 @@ include = ["mism*"]
 exclude = ["deprecated*", "scripts*", "__pycache__*", "*.ipynb_checkpoints*"]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/mism_dev"
-Repository = "https://github.com/yourusername/mism_dev" 
+Homepage = "https://github.com/calico/mism-public"
+Repository = "https://github.com/calico/mism-public" 
