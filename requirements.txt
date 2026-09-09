@@ -1,0 +1,14 @@
+numpy>=1.20.0
+pandas>=1.3.0
+torch>=1.9.0
+scikit-learn>=1.0.0
+h5py>=3.1.0
+pysam>=0.16.0
+tqdm>=4.60.0
+psutil>=5.8.0
+scipy>=1.7.0
+
+# Optional ML dependencies
+celer>=0.6.0
+pytorch-lightning>=1.5.0
+lightning-utilities 

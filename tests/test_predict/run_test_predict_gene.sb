@@ -1,0 +1,28 @@
+#!/bin/bash
+#SBATCH --job-name=test_predict_gene
+#SBATCH --partition=minigpu
+#SBATCH --gres=gpu:nvidia_geforce_rtx_4090:1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=00:30:00
+#SBATCH --output=test_predict_gene.%j.out
+#SBATCH --error=test_predict_gene.%j.err
+
+# Submit with:  sbatch run_test_predict_gene.sb
+# Runs the predict_gene / predict_gene_with_rc / create_seqnn_model tests on a GPU.
+
+set -e
+set -o pipefail
+
+source ~/.bashrc
+conda activate hydra
+
+echo "host: $(hostname)"
+echo "date: $(date)"
+nvidia-smi -L
+
+# submit from tests/test_predict; repo root is two levels up
+REPO_DIR="$(cd "${SLURM_SUBMIT_DIR:-$PWD}/../.." && pwd)"
+cd "$REPO_DIR"
+
+python tests/test_predict/test_predict_gene.py

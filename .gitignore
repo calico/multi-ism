@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Builds & packaging
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+
+# Tests & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+deprecated/
