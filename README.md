@@ -19,10 +19,17 @@ Multi-ISM provides tools for designing and analyzing mutations in genomic sequen
 
 ### Required Dependencies
 
+Install the pinned dependency set with:
+
 ```bash
-# Core packages
-pip install numpy pandas scipy scikit-learn h5py torch
-pip install pybedtools pysam
+pip install -r requirements.txt
+```
+
+Some components require additional packages not covered by `requirements.txt`:
+
+```bash
+# Genomic interval / FASTA handling
+pip install pybedtools
 
 # Baskerville (for deep learning models)
 # Follow installation instructions from the Baskerville repository
