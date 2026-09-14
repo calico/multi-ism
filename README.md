@@ -35,15 +35,23 @@ pip install pybedtools
 # Will be available at: https://github.com/calico/baskerville-torch
 ```
 
-#### Optional: SLURM multi-job orchestration
+#### Choosing a runner
 
-The recommended runner, `run_active_gpu_only.py`, is self-contained and submits
-its own `sbatch` script, so it does **not** require `slurmrunner`. Install
-`slurmrunner` only if you use the multi-job `run_active_hybrid.py` runner:
+The project ships two runners:
 
-```bash
-pip install slurmrunner
-```
+- **`run_active_gpu_only.py`** (recommended) — self-contained: it writes and
+  submits its own `sbatch` script, running the full pipeline as a single job on
+  one GPU node.
+  - *Pros:* simple, with no extra dependencies.
+  - *Cons:* the regression step is CPU-only and does not benefit from
+    parallelization across nodes.
+
+- **`run_active_hybrid.py`** — submits the design and selection steps as GPU
+  jobs and the regression step as a separate CPU job.
+  - *Pros:* more resource-efficient and generally faster.
+  - *Cons:* tied to the HPC scheduler. In our setup it runs on SLURM and uses
+    the custom `slurmrunner` package to submit individual jobs
+    (`pip install slurmrunner`).
 
 ### Installation from Source
 
@@ -124,7 +132,7 @@ The main workflow (`run_active_gpu_only.py`) runs iterative active learning:
 2. **Regression** (CPU): Estimate effect coefficients using elastic net
 
 **Iterations 2+:**
-1. **Select** (GPU): Choose top variants based on previous coefficients, , run single-variant ISM
+1. **Select** (GPU): Choose top variants based on previous coefficients, then run single-variant ISM
 2. **Design** (GPU): Generate new mutations excluding selected positions
 3. **Regression** (CPU): Update coefficients with cumulative data
 
@@ -133,8 +141,7 @@ The main workflow (`run_active_gpu_only.py`) runs iterative active learning:
 ### Per-gene pipeline: run_active_gpu_only.py (recommended)
 
 Runs the full iterative workflow for a single gene as **one self-contained
-SLURM job** on a single GPU node. It writes its own `sbatch` script and submits
-it with `sbatch` — no external launcher or `slurmrunner` required.
+SLURM job** on a single GPU node.
 
 #### Basic Example
 
@@ -181,7 +188,6 @@ python scripts/workflow/run_active_gpu_only.py \
     --params /path/to/params.json \
     --model /path/to/model.pth \
     --target_subset /path/to/target_subset.txt \
-    --vanilla_path /path/to/vanilla_ism/ism_out \
     --celltype K562
 ```
 
@@ -260,18 +266,6 @@ peaks.
   | itr4 | < 40 GB |
   | itr5 | < 50 GB |
 
-- These numbers are the **total** memory for the whole regression job — all
-  targets are solved together against one shared design matrix, *not* per target.
-- **Why it grows:** each iteration stacks its new design matrix onto the
-  cumulative sparse `X_mut` (CSR) used for regression, so `n_samples` — and the
-  solver's residual/working set — grow roughly linearly across iterations. At
-  `mut_len = 500k` the feature dimension is `3 × 500,000 = 1.5M`, and the
-  later-iteration cumulative matrix is what drives the request.
-- The single sparse `X_mut` is shared across all targets, so the number of
-  targets in `--target_subset` adds only the per-target coefficient columns
-  (`n_features × n_targets`), which is minor next to `X`. The primary drivers of
-  total RAM are the cumulative `X` (iteration count, `mut_len`, `--itr_n`,
-  `--prune_pos`, `--k_background`).
 
 ## Output Structure
 
