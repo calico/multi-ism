@@ -32,9 +32,16 @@ Some components require additional packages not covered by `requirements.txt`:
 pip install pybedtools
 
 # Baskerville (for deep learning models)
-# Follow installation instructions from the Baskerville repository
+# Will be available at: https://github.com/calico/baskerville-torch
+```
 
-# SLURM job submission
+#### Optional: SLURM multi-job orchestration
+
+The recommended runner, `run_active_gpu_only.py`, is self-contained and submits
+its own `sbatch` script, so it does **not** require `slurmrunner`. Install
+`slurmrunner` only if you use the multi-job `run_active_hybrid.py` runner:
+
+```bash
 pip install slurmrunner
 ```
 
@@ -52,29 +59,28 @@ pip install -e .
 ## Repository Structure
 
 ```
-mism_dev/
+mism-public/
 ├── mism/                           # Core Python package
-│   ├── __init__.py
 │   └── core/                       # Core modules
-│       ├── __init__.py
-│       ├── mutation_designer.py   # Mutation design logic
-│       ├── elasticnet_cpu.py      # Elastic net regression
-│       └── mism_utils.py          # Utility functions
+│       ├── mutation_designer.py    # Mutation design logic
+│       ├── elasticnet_cpu.py       # Elastic net regression
+│       └── mism_utils.py           # Utility functions
 │
 ├── scripts/                        # Pipeline scripts
 │   ├── workflow/                   # Top-level orchestration
-│   │   └── run_active_hybrid.py    # Per-gene: GPU+CPU SLURM queues
+│   │   ├── run_active_gpu_only.py  # Single self-contained sbatch job (recommended)
+│   │   └── run_active_hybrid.py    # Multi-job GPU+CPU SLURM queues (needs slurmrunner)
 │   │
 │   ├── design/                     # Pipeline support scripts
 │   │   ├── ism_design.py           # Design mutations + run inference
 │   │   ├── ism_regressor.py        # Coefficient estimation
-│   │   ├── select_variants.py      # Variant selection for itr2+
-│   │   └── extract_gene_positions.R
+│   │   └── select_variants.py      # Variant selection for itr2+
 │   │
 │   ├── inference/                  # Vanilla-ISM baselines / prediction
 │   │   ├── ism_vanilla.py          # Vanilla ISM baseline
 │   │   ├── ism_vanilla_select.py   # Evaluate selected variants
-│   │   ├── ism_vanilla_*_background.py  # With background mutations
+│   │   ├── ism_vanilla_mutate_background.py
+│   │   ├── ism_vanilla_select_mutate_background.py
 │   │   ├── gene_pred.py            # Gene-level prediction
 │   │   └── gene_pred_haplotypes.py
 │   │
@@ -88,11 +94,22 @@ mism_dev/
 │       ├── elasticnet.py
 │       └── elasticnet_tune.py
 │
+├── data/                           # Reference tables / example inputs
+│   ├── GATA1.gtf
+│   ├── flashzoi_f0c0.json          # Example model params
+│   ├── flashzoi_targets_all.txt
+│   └── flashzoi_targets_rna.txt
+│
 ├── tests/                          # Tests and examples
 │   ├── test_utils.py               # Unit tests for mism.core helpers
+│   ├── test_assemble_sparse_coefs.py
 │   ├── test_designer/              # MutationDesigner benchmark + report
+│   ├── test_predict/               # Gene-prediction golden test
 │   └── example_active_ism.sh       # Example workflow invocation
+│
+├── requirements.txt                # Pinned dependencies
 ├── pyproject.toml                  # Package configuration
+├── LICENSE.md
 └── README.md                       # This file
 ```
 
@@ -100,7 +117,7 @@ mism_dev/
 
 ### Active Learning Pipeline
 
-The main workflow (`run_active_hybrid.py`) runs iterative active learning:
+The main workflow (`run_active_gpu_only.py`) runs iterative active learning:
 
 **Iteration 1:**
 1. **Design** (GPU): Generate initial mutations and run model inference
@@ -113,24 +130,25 @@ The main workflow (`run_active_hybrid.py`) runs iterative active learning:
 
 ## Usage
 
-### Per-gene pipeline: run_active_hybrid.py
+### Per-gene pipeline: run_active_gpu_only.py (recommended)
 
-Orchestrates the multi-job workflow for a single gene, using GPU nodes for
-inference and CPU nodes for regression.
+Runs the full iterative workflow for a single gene as **one self-contained
+SLURM job** on a single GPU node. It writes its own `sbatch` script and submits
+it with `sbatch` — no external launcher or `slurmrunner` required.
 
 #### Basic Example
 
 ```bash
-python scripts/workflow/run_active_hybrid.py \
+python scripts/workflow/run_active_gpu_only.py \
     --outdir active_prune \
     --gtf /path/to/gene.gtf \
     --initial_n 20 \
     --itr_n 34 \
     --prune_pos 200 \
     --n_iter 5 \
-    --n_cpu 100 \
+    --n_cpu 32 \
     --hydra_env hydra \
-    --script_dir ~/programs/source/python_packages/mism_dev/scripts \
+    --script_dir /path/to/mism/scripts \
     --genome /path/to/genome.fa \
     --targets /path/to/targets.txt \
     --params /path/to/params.json \
@@ -142,7 +160,7 @@ python scripts/workflow/run_active_hybrid.py \
 #### Full Example with All Options
 
 ```bash
-python scripts/workflow/run_active_hybrid.py \
+python scripts/workflow/run_active_gpu_only.py \
     --outdir active_prune \
     --gtf /path/to/gene.gtf \
     --warm \
@@ -151,11 +169,13 @@ python scripts/workflow/run_active_hybrid.py \
     --prune_pos 200 \
     --k_background 4 \
     --n_iter 5 \
-    --n_cpu 100 \
+    --n_cpu 32 \
     --mut_len 500000 \
     --mut_distance_min 50 \
+    --mem 60000 \
+    --time 7-0:0:0 \
     --hydra_env hydra \
-    --script_dir /path/to/mism_dev/scripts \
+    --script_dir /path/to/mism/scripts \
     --genome /path/to/genome.fa \
     --targets /path/to/targets.txt \
     --params /path/to/params.json \
@@ -178,17 +198,16 @@ python scripts/workflow/run_active_hybrid.py \
 - `--mut_distance_min N`: Minimum distance between mutations (default: 50)
 - `--k_background N`: Background sequences for evaluation (default: 0)
 
-**Resources:**
-- `--n_cpu N`: CPU cores for regression (default: 64)
+**Resources (single SLURM job):**
+- `--n_cpu N`: CPU cores for regression (default: 32)
+- `--mem MB`: System RAM for the job in MB (default: 60000)
+- `--time D-H:M:S`: SLURM wall-time limit (default: 7-0:0:0)
 - `--hydra_env ENV`: Conda environment name
 
 **Advanced Options:**
 - `--warm`: Enable warm start (use previous coefficients as initial values)
 - `--continue`: Resume from earliest incomplete iteration
-- `--cleanup`: Remove all iteration folders except the last after completion
 - `--vanilla_path PATH`: Path to vanilla ISM for comparison
-- `--exclude_gpu_nodes LIST`: Comma-separated GPU nodes to avoid
-- `--exclude_cpu_nodes LIST`: Comma-separated CPU nodes to avoid
 
 **Required Paths:**
 - `--gtf FILE`: Gene annotation GTF file
@@ -197,6 +216,15 @@ python scripts/workflow/run_active_hybrid.py \
 - `--params FILE`: Model parameters JSON
 - `--model FILE`: Trained model checkpoint
 - `--target_subset FILE`: Target subset for analysis
+
+### Alternative: run_active_hybrid.py (multi-job)
+
+`run_active_hybrid.py` splits each step into separate GPU and CPU SLURM jobs for
+better cluster utilization on large runs. It adds per-iteration memory scaling
+and node-exclusion options (`--cleanup`, `--exclude_gpu_nodes`,
+`--exclude_cpu_nodes`), and **requires** `slurmrunner`
+(`pip install slurmrunner`). See the "Resource Requirements" section below for
+its SLURM request profile.
 
 ## Resource Requirements
 
