@@ -239,8 +239,6 @@ peaks.
   solver's residual/working set — grow roughly linearly across iterations. At
   `mut_len = 500k` the feature dimension is `3 × 500,000 = 1.5M`, and the
   later-iteration cumulative matrix is what drives the request.
-  Later iterations are the memory bottleneck; **budget for the itr5 peak
-  (< 50 GB), not itr1.**
 - The single sparse `X_mut` is shared across all targets, so the number of
   targets in `--target_subset` adds only the per-target coefficient columns
   (`n_features × n_targets`), which is minor next to `X`. The primary drivers of

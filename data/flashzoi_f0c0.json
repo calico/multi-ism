@@ -1,0 +1,22 @@
+{
+    "model": {
+        "seq_length": 524288,
+        "trunk": [
+            {
+                "name": "BorzoiTrunk",
+                "use_flash_attn": true,
+                "replicate_index": 0,
+                "pool_size": 32,
+                "crop_size": 5120
+            }
+        ],
+        "head_human": {
+            "name": "BorzoiHead",
+            "use_flash_attn": true,
+            "replicate_index": 0,
+            "use_human": true,
+            "in_channels": 1920,
+            "out_channels": 7611
+        }
+    }
+}
