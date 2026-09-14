@@ -7,7 +7,11 @@ import pandas as pd
 import torch
 import time
 from mism.core.elasticnet_cpu import ElasticNetMulti, load_sparse_matrix_from_hdf5
-from mism.core.mism_utils import load_ism_scores
+from mism.core.mism_utils import (
+    load_ism_scores,
+    assemble_sparse_coefs,
+    print_cpu_memory_peak,
+)
 from scipy.sparse import csr_matrix
 from scipy.sparse import vstack
 import os
@@ -63,13 +67,6 @@ parser.add_argument(
     type=float,
     default=1e-4,
     help="ElasticNet alpha parameter [Default: %(default)s]",
-)
-parser.add_argument(
-    "--model",
-    type=str,
-    default="L1",
-    choices=["L1", "IRL1"],
-    help="Regression model: L1 (Lasso) or IRL1 (Iterative Reweighted L1) [Default: %(default)s]",
 )
 parser.add_argument(
     "--njobs",
@@ -207,6 +204,9 @@ Y = Y[:, select_targets]
 
 # subset X to only overlapping coefficients
 X = X_full[:, overlapping_coef_indices]
+# celer needs CSC; convert once here so forked workers share it copy-on-write
+# instead of each worker re-converting CSR->CSC into a private copy (OOM).
+X = X.tocsc()
 print(f"Number of targets: {Y.shape[1]}")
 print(f"X_full shape: {X_full.shape}")
 print(f"X_filtered shape: {X.shape}")
@@ -226,20 +226,30 @@ if args.prev_coefs is not None:
     coefs_input = coefs_input[overlapping_coef_indices, :]
     print(f"Filtered coefs shape (overlapping variants only): {coefs_input.shape}")
 
-print(f"Running {args.model} regression...")
+print(f"Running L1 regression...")
 coefs_subset = ElasticNetMulti(
-    X, Y, njobs=args.njobs, alpha=args.alpha, model=args.model, coefs_input=coefs_input
+    X,
+    Y,
+    njobs=args.njobs,
+    alpha=args.alpha,
+    coefs_input=coefs_input,
+    return_sparse=True,
 )
 
-# expand coefficients back to full size (with zeros for non-overlapping positions)
-coefs_full = np.zeros((Y.shape[1], X_full.shape[1]), dtype=np.float32)
-coefs_full[:, overlapping_coef_indices] = coefs_subset
-
+# expand to full (T, p) sparse coefs directly, without a dense (T, p) intermediate
 if args.ism_select_sed_files is not None:
-    coefs_full[:, ism_idx] = ism_select[:, select_targets, :].mean(axis=2).transpose()
+    ism_values = ism_select[:, select_targets, :].mean(axis=2).transpose()
+else:
+    ism_idx = None
+    ism_values = None
 
-dense = torch.tensor(coefs_full, dtype=torch.float16)
-sparse = dense.to_sparse()
+sparse = assemble_sparse_coefs(
+    coefs_subset,
+    overlapping_coef_indices,
+    X_full.shape[1],
+    ism_idx=ism_idx,
+    ism_values=ism_values,
+)
 
 os.makedirs(args.outdir, exist_ok=True)
 torch.save(sparse, f"{args.outdir}/coefs.pt")  # save estimated coefs
@@ -255,3 +265,4 @@ targets.iloc[select_targets, :].to_csv(
 end_time = time.time()
 total_runtime = end_time - start_time
 print(f"Total runtime: {total_runtime:.2f} seconds")
+print_cpu_memory_peak()

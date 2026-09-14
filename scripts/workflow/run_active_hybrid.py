@@ -344,7 +344,7 @@ def run_iteration_1(
         sb_file=str(itr_dir / "regress.sh"),
         queue="standard",
         cpu=n_cpu,
-        mem=60000,
+        mem=40000,
         time="2-0:0:0",
         sbatch_options=cpu_sbatch_options,
     )
@@ -491,7 +491,7 @@ def run_iteration_n(
         sb_file=str(itr_dir / "regress.sh"),
         queue="standard",
         cpu=n_cpu,
-        mem=60000 * itr,
+        mem=40000 * itr,
         time="2-0:0:0",
         sbatch_options=cpu_sbatch_options,
     )

@@ -26,6 +26,71 @@ def load_ism_scores(ism_scores_pt_file):
     return ism_m
 
 
+def assemble_sparse_coefs(
+    coefs_subset,
+    overlapping_coef_indices,
+    n_coefs_full,
+    ism_idx=None,
+    ism_values=None,
+    dtype=torch.float16,
+):
+    """Assemble the full (T, p) coefficient tensor as a sparse tensor.
+
+    Equivalent to scattering ``coefs_subset`` into a dense ``(T, p)`` array at
+    ``overlapping_coef_indices`` (optionally overwriting ``ism_idx`` columns with
+    ``ism_values``), casting to ``dtype`` and calling ``.to_sparse()`` -- but it
+    never materializes the dense ``(T, p)`` array, which dominates peak memory
+    when ``overlapping_coef_indices`` covers most of the ``p`` coefficients.
+
+    Args:
+        coefs_subset: (T, n_overlap) Lasso coefficients over overlapping columns.
+        overlapping_coef_indices: (n_overlap,) global column of each subset column.
+        n_coefs_full: p, number of columns in the full coefficient tensor.
+        ism_idx: optional (n_sel,) global columns overwritten by ISM-select values.
+        ism_values: optional (T, n_sel) values placed at ``ism_idx`` (overwrites).
+        dtype: output torch dtype (default float16, matching legacy behavior).
+
+    Returns:
+        torch.sparse_coo_tensor of shape (T, p).
+    """
+    T = coefs_subset.shape[0]
+    overlapping_coef_indices = np.asarray(overlapping_coef_indices)
+
+    # coefs_subset is (T, n_overlap) but the Lasso solution is mostly zero. Pull
+    # nonzeros directly (no extra dense copy), cast only the value vector to
+    # float16, then drop entries that underflow to 0 in float16 (as .to_sparse()
+    # would). Accept either a dense array or a scipy sparse matrix.
+    if issparse(coefs_subset):
+        coo = coefs_subset.tocoo()
+        rows, cols_local = coo.row, coo.col
+        vals = coo.data.astype(np.float16)
+    else:
+        rows, cols_local = np.nonzero(coefs_subset)
+        vals = coefs_subset[rows, cols_local].astype(np.float16)
+    nz = vals != 0
+    rows, cols_local, vals = rows[nz], cols_local[nz], vals[nz]
+    cols = overlapping_coef_indices[cols_local]
+
+    if ism_idx is not None and ism_values is not None:
+        ism_idx = np.asarray(ism_idx)
+        # ISM-select columns overwrite Lasso entries: drop any Lasso entry there.
+        keep = ~np.isin(cols, ism_idx)
+        rows, cols, vals = rows[keep], cols[keep], vals[keep]
+
+        ism_values = np.asarray(ism_values)
+        irows, icols_local = np.nonzero(ism_values)
+        ivals = ism_values[irows, icols_local].astype(np.float16)
+        inz = ivals != 0
+        irows, icols_local, ivals = irows[inz], icols_local[inz], ivals[inz]
+        rows = np.concatenate([rows, irows])
+        cols = np.concatenate([cols, ism_idx[icols_local]])
+        vals = np.concatenate([vals, ivals])
+
+    indices = torch.from_numpy(np.vstack([rows, cols]).astype(np.int64))
+    values = torch.from_numpy(np.ascontiguousarray(vals)).to(dtype)
+    return torch.sparse_coo_tensor(indices, values, size=(T, n_coefs_full)).coalesce()
+
+
 def coef2score(ref_mut_1hot, coefs, mut_len, target_num, normalize=False):
     """Convert regression coefficients to position-specific nucleotide scores.
 

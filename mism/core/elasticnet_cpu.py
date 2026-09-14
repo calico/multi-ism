@@ -2,7 +2,7 @@ import numpy as np
 import multiprocessing
 from celer import ElasticNet
 from tqdm import tqdm
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, vstack
 
 # Global variables for multiprocessing
 X = None
@@ -106,72 +106,26 @@ def fit_elasticnet(args):
     return clr.coef_
 
 
-def fit_IRL1(args):
+def ElasticNetMulti(
+    X_input, Y_input, njobs, alpha, coefs_input=None, return_sparse=False
+):
     """
-    Fit Iterative Reweighted L1 (IRL1) regression.
-
-    Args:
-        args: tuple of (i, alpha, max_iters)
-            i: target index
-            alpha: regularization parameter
-            max_iters: maximum number of reweighting iterations (default: 3)
-
-    Returns:
-        coef_: coefficient array for target i
-    """
-    i, alpha = args
-
-    eps = 1e-4
-    max_iters = 2
-    y = Y[:, i]
-    n_features = X.shape[1]
-
-    # Iteration 1: Regular Lasso
-    clr = ElasticNet(
-        alpha=alpha,
-        l1_ratio=1,
-        fit_intercept=False,
-        max_iter=300,
-        tol=1e-2,
-        max_epochs=10000,
-        verbose=0,
-    )
-    clr.fit(X, y)
-
-    # Iterations 2 to max_iters: Reweighted Lasso with warm start
-    for itr in range(1, max_iters):
-        # Compute weights: w_j = 1 / (|beta_j| + eps)
-        weights = 1.0 / (np.abs(clr.coef_) + eps)
-
-        # Normalize weights so that mean(w_j) = 1
-        weights = weights / np.mean(weights)
-
-        # Update weights and enable warm start from iteration 2 onwards
-        clr.set_params(
-            weights=weights, warm_start=True, tol=1e-2, max_epochs=10000, verbose=0
-        )
-        clr.fit(X, y)
-
-    return clr.coef_
-
-
-def ElasticNetMulti(X_input, Y_input, njobs, alpha, model="L1", coefs_input=None):
-    """
-    Run ElasticNet regression in parallel across Y's columns with progress tracking.
+    Run Lasso regression in parallel across Y's columns with progress tracking.
 
     Parameters:
     - X_input: feature matrix (n_samples, n_features)
     - Y_input: target matrix (n_samples, n_tasks)
     - njobs: number of parallel jobs
     - alpha: regularization parameter
-    - model: 'L1' or 'IRL1' (default: 'L1')
-        'L1': standard Lasso regression
-        'IRL1': Iterative Reweighted L1 regression
     - coefs_input: initial coefficients matrix (n_features, n_tasks), default: None
         If provided, will be used for warm start initialization
+    - return_sparse: if True, sparsify each task's coefficient vector as it is
+        collected and return a scipy CSR matrix, avoiding the dense (n_tasks,
+        n_features) stack (which dominates peak memory for large, sparse Lasso
+        solutions). Default False returns the dense array.
 
     Returns:
-    - coef_matrix: array of shape (n_tasks, n_features)
+    - coef_matrix: (n_tasks, n_features); dense ndarray, or CSR if return_sparse.
     """
 
     # Set global variables for worker processes
@@ -186,15 +140,8 @@ def ElasticNetMulti(X_input, Y_input, njobs, alpha, model="L1", coefs_input=None
     except RuntimeError:
         pass
 
-    # Select fitting function based on model type
-    if model.upper() == "IRL1":
-        fit_func = fit_IRL1
-        desc = "IRL1 fitting"
-    elif model.upper() == "L1":
-        fit_func = fit_elasticnet
-        desc = "L1 fitting"
-    else:
-        raise ValueError(f"model must be 'L1' or 'IRL1', got '{model}'")
+    fit_func = fit_elasticnet
+    desc = "L1 fitting"
 
     print(f"Starting {desc} for {Y.shape[1]} targets using {njobs} processes...")
 
@@ -203,13 +150,14 @@ def ElasticNetMulti(X_input, Y_input, njobs, alpha, model="L1", coefs_input=None
 
     with multiprocessing.Pool(processes=njobs) as pool:
         # Use imap with tqdm for progress tracking
-        results = list(
-            tqdm(
-                pool.imap(fit_func, args_list),
-                total=Y.shape[1],
-                desc=desc,
-                unit="targets",
-            )
+        result_iter = tqdm(
+            pool.imap(fit_func, args_list), total=Y.shape[1], desc=desc, unit="targets"
         )
+        if return_sparse:
+            # sparsify each coef vector as it arrives so the full dense
+            # (n_tasks, n_features) stack is never materialized
+            rows = [csr_matrix(coef) for coef in result_iter]
+            return vstack(rows, format="csr")
+        results = list(result_iter)
 
     return np.array(results)

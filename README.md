@@ -222,15 +222,15 @@ peaks.
 
 - **Request:** `--n_cpu` cores (100), 2-day wall limit, and **RAM that scales
   with the iteration number**: `run_active_hybrid.py` requests
-  `mem = 60 GB × itr`.
+  `mem < 10 GB × itr`.
 
   | Iteration | Requested RAM (total, all targets) |
   |---|---|
-  | itr1 | 60 GB |
-  | itr2 | 120 GB |
-  | itr3 | 180 GB |
-  | itr4 | 240 GB |
-  | itr5 | 300 GB |
+  | itr1 | < 10 GB |
+  | itr2 | < 20 GB |
+  | itr3 | < 30 GB |
+  | itr4 | < 40 GB |
+  | itr5 | < 50 GB |
 
 - These numbers are the **total** memory for the whole regression job — all
   targets are solved together against one shared design matrix, *not* per target.
@@ -238,9 +238,9 @@ peaks.
   cumulative sparse `X_mut` (CSR) used for regression, so `n_samples` — and the
   solver's residual/working set — grow roughly linearly across iterations. At
   `mut_len = 500k` the feature dimension is `3 × 500,000 = 1.5M`, and the
-  later-iteration cumulative matrix is what drives the multi-hundred-GB request.
+  later-iteration cumulative matrix is what drives the request.
   Later iterations are the memory bottleneck; **budget for the itr5 peak
-  (~300 GB), not itr1.**
+  (< 50 GB), not itr1.**
 - The single sparse `X_mut` is shared across all targets, so the number of
   targets in `--target_subset` adds only the per-target coefficient columns
   (`n_features × n_targets`), which is minor next to `X`. The primary drivers of
