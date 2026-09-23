@@ -291,14 +291,6 @@ outdir/
 └── ...
 ```
 
-## Features
-
-- **Active Learning**: Iterative variant selection and mutation design
-- **Multi-Mutation ISM**: Design complex multi-mutation sequences
-- **Deep Learning Integration**: Works with Baskerville PyTorch models
-- **Flexible Orchestration**: Multi-job or single-job execution modes
-- **Comprehensive Evaluation**: Comparison with vanilla ISM baselines
-
 ## Citation
 
 If you use MISM in your research, please cite:
